@@ -1,4 +1,5 @@
 using StockQuoteAlert;
+using System.Text.RegularExpressions;
 
 // Teste da API brapi.dev
 
@@ -7,6 +8,68 @@ DotNetEnv.Env.Load();
 //Se nenhum ticker for passado como argumento, usa alguns ativos de teste
 var tickers = args.Length > 0 ? args : new[] { "PETR4", "VALE3", "ITUB4", "MGLU3" };
 var token = Environment.GetEnvironmentVariable("BRAPI_API_KEY");
+
+//Verifica se o número de argumentos é correto
+if (args.Length != 3)
+{
+    Console.WriteLine("Erro: Número incorreto de argumentos.");
+    Console.WriteLine("Uso: dotnet run -- <ticker> <preço_minimo> <preço_máximo>");
+    return 1;
+}
+
+//Verifica Ticker
+bool VerificaTicker(string ticker)
+{
+    ticker.Trim().ToUpper();
+
+    if (!Regex.IsMatch(ticker, @"^[A-Z]{4}\d{1,2}$"))
+    {
+        Console.WriteLine($"'{ticker}' não parece um ticker válido (ex: PETR4, BOVA11).");
+        return false;
+    }
+    else
+    {
+        return true;
+    }
+}
+
+//Verifica se o preço mínimo e máximo são válidos
+if (!decimal.TryParse(args[1], out decimal precoMinimo))
+{
+    Console.WriteLine("Erro: preço mínimo inválido.");
+    return 1;
+}
+
+if (!decimal.TryParse(args[2], out decimal precoMaximo))
+{
+    Console.WriteLine("Erro: preço máximo inválido.");
+    return 1;
+}
+
+
+
+//Função para verificar se o preço está dentro do intervalo especificado
+int IsPriceInRange(decimal price, decimal min, decimal max) {
+    if(price <= min)
+    {
+        Console.WriteLine($"Preço {price} está abaixo do mínimo {min}");
+        return -1; // Abaixo do mínimo
+    }
+    else if (price >= max)
+    {
+        Console.WriteLine($"Preço {price} está acima do máximo {max}");
+        return 1; // Acima do máximo
+    }
+    else
+    {
+        Console.WriteLine($"Preço {price} está dentro do intervalo [{min}, {max}]");
+        return 0; // Dentro do intervalo
+    }
+
+}
+
+
+
 
 // Exibe informações sobre o token
 Console.WriteLine(string.IsNullOrWhiteSpace(token)
@@ -42,3 +105,4 @@ foreach (var ticker in tickers)
 Console.WriteLine();
 Console.WriteLine($"{tickers.Length - falhas}/{tickers.Length} consultas bem-sucedidas.");
 return falhas == 0 ? 0 : 1;
+
