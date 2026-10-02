@@ -44,16 +44,24 @@ public class Program
 
         while (!cts.IsCancellationRequested)
         {
-            var quote = await client.GetQuoteAsync(ticker);
+            try
+            {
+                var quote = await client.GetQuoteAsync(ticker);
 
-            if (quote is null)
-            {
-                Console.WriteLine($"[FALHA] {ticker}: nenhuma cotação retornada");
+                if (quote is null)
+                {
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] [FALHA] {ticker}: nenhuma cotação retornada");
+                }
+                else
+                {
+                    Console.Write($"[{DateTime.Now:HH:mm:ss}] {ticker}: ");
+                    IsPriceInRange(quote.RegularMarketPrice, precoCompra, precoVenda);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                Console.Write($"[{DateTime.Now:HH:mm:ss}] {ticker}: ");
-                IsPriceInRange(quote.RegularMarketPrice, precoCompra, precoVenda);
+                // Falha momentânea (rede, timeout, API fora do ar): registra e tenta na próxima volta
+                Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] [FALHA] {ticker}: {ex.Message}");
             }
 
             try
