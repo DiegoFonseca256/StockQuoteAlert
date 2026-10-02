@@ -55,8 +55,29 @@ public class Program
         Console.WriteLine("Pressione Ctrl+C para encerrar.");
         Console.WriteLine();
 
+        var isFirstCheck = true;  // a primeira consulta acontece mesmo com o mercado fechado
+
         while (!cts.IsCancellationRequested)
         {
+            // Fora do horário da B3: dorme até a próxima abertura em vez de consultar a API
+            var now = MarketHours.NowInBrasilia();
+            if (!isFirstCheck && !MarketHours.IsOpen(now))
+            {
+                var nextOpening = MarketHours.NextOpening(now);
+                Console.WriteLine($"[{now:HH:mm:ss}] Mercado fechado. Próxima abertura: {nextOpening:dd/MM HH:mm}");
+
+                try
+                {
+                    await Task.Delay(nextOpening - now, cts.Token);
+                }
+                catch (TaskCanceledException)
+                {
+                    break;  // Ctrl+C durante a espera
+                }
+                continue;
+            }
+            isFirstCheck = false;
+
             try
             {
                 var quote = await client.GetQuoteAsync(ticker);
@@ -103,6 +124,10 @@ public class Program
                 // Falha momentânea (rede, timeout, API fora do ar): registra e tenta na próxima volta
                 Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] [FALHA] {ticker}: {ex.Message}");
             }
+
+            // Mercado fechado: volta direto para o topo, que espera até a abertura
+            if (!MarketHours.IsOpen(MarketHours.NowInBrasilia()))
+                continue;
 
             try
             {
