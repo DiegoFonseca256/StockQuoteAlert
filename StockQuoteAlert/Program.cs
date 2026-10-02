@@ -4,29 +4,35 @@ public class Program
 {
     public static async Task<int> Main(string[] args)
     {
-
-        /** -------------------------------------------Area de carregamento----------------------------------------------------------*/
+        //------------------------------------------------Carregamento-------------------------------------------------------------------
         // Carrega variáveis de ambiente do arquivo .env (segredos: token da brapi e senha do SMTP)
         DotNetEnv.Env.TraversePath().Load();
         var token = Environment.GetEnvironmentVariable("BRAPI_API_KEY");
         // Lê o appsettings.json (e-mail de destino, SMTP e intervalo)
-        var config = Configuracao.Carregar();
-        if (config is null) return 1;
-        // Cria o objeto de envio de e-mails
-        var email = new Email(config.Smtp);
-        int? ultimoResultado = null;
-        // Cria o cliente da BRAPI
+        var settings = AppSettings.Load();
+        if (settings is null) return 1;
+        // Cria o serviço de envio de e-mails
+        var emailService = new EmailService(settings.Smtp);
+        int? lastResult = null;
+        // Cria o cliente da brapi
         var client = new BrapiClient(token);
-        var intervalo = TimeSpan.FromSeconds(config.IntervaloSegundos); // tempo entre consultas
-        /** -------------------------------------------------------------------------------------------------------------------------*/
+        var interval = TimeSpan.FromSeconds(settings.IntervalSeconds); // tempo entre consultas
+        //-------------------------------------------------------------------------------------------------------------------------------
 
-        /** -------------------------------------------Area de Validação-------------------------------------------------------------*/
+        //------------------------------------------------Validação----------------------------------------------------------------------
         // Valida os argumentos: <ticker> <preço_venda> <preço_compra>
-        if (!Validacoes.ValidarQuantidadeDeArgumentos(args)) return 1;
-        if (!Validacoes.ValidarTicker(args[0], out var ticker)) return 1;
-        if (!Validacoes.ValidarPrecos(args[1], args[2], out var precoVenda, out var precoCompra)) return 1;
+        var error = Validations.ValidateArgumentCount(args);
+        if (error is not null) return Fail(error);
+
+        error = Validations.ValidateTicker(args[0], out var ticker);
+        if (error is not null) return Fail(error);
+
+        error = Validations.ValidatePrices(args[1], args[2], out var sellPrice, out var buyPrice);
+        if (error is not null) return Fail(error);
+
         // Confirma que o ticker existe antes de começar o monitoramento
-        if (!await Validacoes.ValidarTickerNaB3(client, ticker)) return 1;
+        error = await Validations.ValidateTickerExistsAsync(client, ticker);
+        if (error is not null) return Fail(error);
 
         // Exibe informações sobre o token
         Console.WriteLine(string.IsNullOrWhiteSpace(token)
@@ -34,10 +40,10 @@ public class Program
             : "Usando token da variável BRAPI_API_KEY.");
         Console.WriteLine();
 
-        Console.WriteLine($"Monitorando {ticker}: venda acima de {precoVenda}, compra abaixo de {precoCompra}.");
+        Console.WriteLine($"Monitorando {ticker}: venda acima de {sellPrice}, compra abaixo de {buyPrice}.");
+        //---------------------------------------------------------------------------------------------------------------------------------
 
-        /** -------------------------------------------------------------------------------------------------------------------------*/
-
+        //------------------------------------------------Monitoramento--------------------------------------------------------------------
         // Ctrl+C sinaliza o cancelamento em vez de matar o processo na hora
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
@@ -48,8 +54,6 @@ public class Program
 
         Console.WriteLine("Pressione Ctrl+C para encerrar.");
         Console.WriteLine();
-
-        
 
         while (!cts.IsCancellationRequested)
         {
@@ -63,21 +67,29 @@ public class Program
                 }
                 else
                 {
-                    Console.Write($"[{DateTime.Now:HH:mm:ss}] {ticker}: ");
-                    var resultado = IsPriceInRange(quote.RegularMarketPrice, precoCompra, precoVenda);
+                    var price = quote.RegularMarketPrice;
+                    var result = IsPriceInRange(price, buyPrice, sellPrice);
 
-                    if (resultado == 0)
+                    var status = result switch
                     {
-                        ultimoResultado = 0;  // voltou para a faixa: o próximo rompimento gera alerta de novo
+                        -1 => $"Preço {price} está abaixo do mínimo {buyPrice}",
+                        1 => $"Preço {price} está acima do máximo {sellPrice}",
+                        _ => $"Preço {price} está dentro do intervalo [{buyPrice}, {sellPrice}]"
+                    };
+                    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {ticker}: {status}");
+
+                    if (result == 0)
+                    {
+                        lastResult = 0;  // voltou para a faixa: o próximo rompimento gera alerta de novo
                     }
-                    else if (resultado != ultimoResultado)
+                    else if (result != lastResult)
                     {
-                        var (assunto, corpo) = MontarAlerta(resultado, ticker, quote.RegularMarketPrice, precoVenda, precoCompra);
+                        var (subject, body) = BuildAlert(result, ticker, price, sellPrice, buyPrice);
 
                         try
                         {
-                            await email.SendEmail(config.EmailDestino, assunto, corpo);
-                            ultimoResultado = resultado;
+                            await emailService.SendEmailAsync(settings.RecipientEmail, subject, body);
+                            lastResult = result;
                         }
                         catch (Exception ex)
                         {
@@ -94,7 +106,7 @@ public class Program
 
             try
             {
-                await Task.Delay(intervalo, cts.Token);
+                await Task.Delay(interval, cts.Token);
             }
             catch (TaskCanceledException)
             {
@@ -105,40 +117,36 @@ public class Program
         Console.WriteLine("Monitoramento encerrado.");
         return 0;
     }
+    //---------------------------------------------------------------------------------------------------------------------------------
 
-    /** -------------------------------------------Area das Funções Auxiliares----------------------------------------------------------*/
+    //------------------------------------------------Funções auxiliares----------------------------------------------------------------------
 
-    //Função para verificar se o preço está dentro do intervalo especificado
-    private static int IsPriceInRange(decimal price, decimal min, decimal max)
+    // Exibe o erro de validação e devolve o código de saída do programa
+    private static int Fail(string message)
     {
-        if (price < min)
-        {
-            Console.WriteLine($"Preço {price} está abaixo do mínimo {min}");
-            return -1; // Abaixo do mínimo
-        }
-        else if (price > max)
-        {
-            Console.WriteLine($"Preço {price} está acima do máximo {max}");
-            return 1; // Acima do máximo
-        }
-        else
-        {
-            Console.WriteLine($"Preço {price} está dentro do intervalo [{min}, {max}]");
-            return 0; // Dentro do intervalo
-        }
+        Console.WriteLine($"Erro: {message}");
+        return 1;
     }
 
-    //Função para montar o assunto e o corpo do alerta: resultado 1 = venda, -1 = compra
-    private static (string Assunto, string Corpo) MontarAlerta(
-        int resultado, string ticker, decimal preco, decimal precoVenda, decimal precoCompra)
+    //Função para verificar se o preço está dentro do intervalo: -1 = abaixo, 0 = dentro, 1 = acima
+    private static int IsPriceInRange(decimal price, decimal min, decimal max)
     {
-        return resultado == 1
-            ? ($"[VENDA] {ticker} a R$ {preco:F2}",
-               $"A cotação de {ticker} está em R$ {preco:F2}, acima do preço de referência para venda (R$ {precoVenda:F2}).\n" +
+        if (price < min) return -1; // Abaixo do mínimo
+        if (price > max) return 1;  // Acima do máximo
+        return 0;                   // Dentro do intervalo
+    }
+
+    //Função para montar o assunto e o corpo do alerta: result 1 = venda, -1 = compra
+    private static (string Subject, string Body) BuildAlert(
+        int result, string ticker, decimal price, decimal sellPrice, decimal buyPrice)
+    {
+        return result == 1
+            ? ($"[VENDA] {ticker} a R$ {price:F2}",
+               $"A cotação de {ticker} está em R$ {price:F2}, acima do preço de referência para venda (R$ {sellPrice:F2}).\n" +
                $"Recomendação: VENDER.\n\nHorário: {DateTime.Now:dd/MM/yyyy HH:mm:ss}")
-            : ($"[COMPRA] {ticker} a R$ {preco:F2}",
-               $"A cotação de {ticker} está em R$ {preco:F2}, abaixo do preço de referência para compra (R$ {precoCompra:F2}).\n" +
+            : ($"[COMPRA] {ticker} a R$ {price:F2}",
+               $"A cotação de {ticker} está em R$ {price:F2}, abaixo do preço de referência para compra (R$ {buyPrice:F2}).\n" +
                $"Recomendação: COMPRAR.\n\nHorário: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
     }
 }
-/** -----------------------------------------------------------------------------------------------------------------------------------*/
+//---------------------------------------------------------------------------------------------------------------------------------

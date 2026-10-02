@@ -1,19 +1,17 @@
+using System.Net;
 using System.Net.Http.Headers;
-using System.Text.Json;
+using System.Net.Http.Json;
 
 namespace StockQuoteAlert;
 
+// Modelo da resposta da brapi (os nomes espelham o JSON da API)
 public class Quote
 {
-    public string Symbol { get; set; } = "";    
+    public string Symbol { get; set; } = "";
     public string? ShortName { get; set; }
     public decimal RegularMarketPrice { get; set; }
     public decimal RegularMarketChangePercent { get; set; }
     public string? Currency { get; set; }
-
-    public void Print(){
-        Console.WriteLine($"{Symbol} ({ShortName}) - {RegularMarketPrice} {Currency} ({RegularMarketChangePercent:+0.00;-0.00}%)");
-    }
 }
 
 public class QuoteResponse
@@ -25,11 +23,6 @@ public class BrapiClient
 {
     private readonly HttpClient _httpClient;
     private const string BaseUrl = "https://brapi.dev/api";
-
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
 
     public BrapiClient(string? token)
     {
@@ -52,7 +45,7 @@ public class BrapiClient
         var response = await _httpClient.GetAsync(url);
 
         // Ticker inexistente: a brapi responde 404
-        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        if (response.StatusCode == HttpStatusCode.NotFound)
             return null;
 
         if (!response.IsSuccessStatusCode)
@@ -62,8 +55,8 @@ public class BrapiClient
                 $"Erro {(int)response.StatusCode} ao consultar {ticker}: {body}");
         }
 
-        var json = await response.Content.ReadAsStringAsync();
-        var data = JsonSerializer.Deserialize<QuoteResponse>(json, JsonOptions);
+        // Lê e converte o JSON de uma vez (já ignora maiúsculas/minúsculas nos nomes)
+        var data = await response.Content.ReadFromJsonAsync<QuoteResponse>();
         return data?.Results?.FirstOrDefault();
     }
 }
