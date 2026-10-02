@@ -1,56 +1,47 @@
-﻿using System;
+using System.Net;
 using System.Net.Mail;
-using System.Text.RegularExpressions;
+
+namespace StockQuoteAlert;
 
 public class Email
 {
-    
+    private readonly ConfiguracaoSmtp _smtp;
 
-    public string Provedor { get; private set; }
-    public string Username { get; private set; }
-    public string Password { get; private set; }
-
-    public Email(string provedor, string username, string password)
+    // Recebe host, porta, SSL e credenciais lidos do appsettings.json / .env
+    public Email(ConfiguracaoSmtp smtp)
     {
-        Provedor = provedor ?? throw new ArgumentNullException(nameof(provedor));
-        Username = username ?? throw new ArgumentNullException(nameof(username));
-        Password = password ?? throw new ArgumentNullException(nameof(password));
+        _smtp = smtp ?? throw new ArgumentNullException(nameof(smtp));
     }
 
-    public void SendEmail(string EmailTo, string subject, string body)
+    public async Task SendEmail(string emailTo, string subject, string body)
     {
-        // Implementação do envio de e-mail usando SMTP ou outro serviço
-        Console.WriteLine($"Enviando e-mail para {EmailTo} com assunto '{subject}' e corpo '{body}'");
+        Console.WriteLine($"Enviando e-mail para {emailTo} com assunto '{subject}'");
 
-        var massage = PrepareteEmail(EmailTo, subject, body);
-
-        SendMailBySmtp(massage);
-
+        using var message = PrepareEmail(emailTo, subject, body);
+        await SendEmailBySmtp(message);
     }
 
-    private MailMessage PrepareteEmail(string EmailTo, string subject, string body)
+    private MailMessage PrepareEmail(string emailTo, string subject, string body)
     {
-        var mail = new MailMessage();
-        mail.From = new MailAddress(Username);
-        mail.To.Add(EmailTo);
-        mail.Subject = subject;
-        mail.Body = body;
+        var mail = new MailMessage
+        {
+            From = new MailAddress(_smtp.Usuario),
+            Subject = subject,
+            Body = body
+        };
+        mail.To.Add(emailTo);
         return mail;
     }
 
-    private void SendMailBySmtp(MailMessage mail)
+    private async Task SendEmailBySmtp(MailMessage mail)
     {
-        var smtpClient = new SmtpClient();
-        smtpClient.Host = Provedor;
-        smtpClient.Port = 587; // Porta padrão para envio de e-mails
-        smtpClient.EnableSsl = true; // Habilita SSL para segurança
+        // "using" fecha a conexão com o servidor mesmo se o envio falhar
+        using var smtpClient = new SmtpClient(_smtp.Host, _smtp.Porta)
+        {
+            EnableSsl = _smtp.UsarSsl,
+            Credentials = new NetworkCredential(_smtp.Usuario, _smtp.Senha)
+        };
 
-        smtpClient.Credentials = new System.Net.NetworkCredential(Username, Password);
-        smtpClient.Send(mail);
-        smtpClient.Dispose();
-
-
-
+        await smtpClient.SendMailAsync(mail);
     }
-
 }

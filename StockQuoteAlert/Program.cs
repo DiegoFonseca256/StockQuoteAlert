@@ -4,7 +4,7 @@ public class Program
 {
     public static async Task<int> Main(string[] args)
     {
-        // Carrega variáveis de ambiente do arquivo .env
+        // Carrega variáveis de ambiente do arquivo .env (segredos: token da brapi e senha do SMTP)
         DotNetEnv.Env.TraversePath().Load();
         var token = Environment.GetEnvironmentVariable("BRAPI_API_KEY");
 
@@ -13,14 +13,9 @@ public class Program
         if (!Validacoes.ValidarTicker(args[0], out var ticker)) return 1;
         if (!Validacoes.ValidarPrecos(args[1], args[2], out var precoVenda, out var precoCompra)) return 1;
 
-        Console.WriteLine($"Monitorando {ticker}: venda acima de {precoVenda}, compra abaixo de {precoCompra}.");
-
-        //// Teste de envio de e-mail
-        //var gmail = new Email("smtp.gmail.com",
-        //                      Environment.GetEnvironmentVariable("EMAIL_ADRESS"),
-        //                      Environment.GetEnvironmentVariable("APP_PASSWORD"));
-
-        //gmail.SendEmail(Environment.GetEnvironmentVariable("EMAIL_ADRESS"), "TESTE C#", "Hello World!");
+        // Lê o appsettings.json (e-mail de destino, SMTP e intervalo)
+        var config = Configuracao.Carregar();
+        if (config is null) return 1;
 
         // Exibe informações sobre o token
         Console.WriteLine(string.IsNullOrWhiteSpace(token)
@@ -28,8 +23,14 @@ public class Program
             : "Usando token da variável BRAPI_API_KEY.");
         Console.WriteLine();
 
+        Console.WriteLine($"Monitorando {ticker}: venda acima de {precoVenda}, compra abaixo de {precoCompra}.");
+
+        // Teste de envio de e-mail
+        //var gmail = new Email(config.Smtp);
+        //await gmail.SendEmail(config.EmailDestino, "TESTE C#", "Hello World!");
+
         var client = new BrapiClient(token);
-        var intervalo = TimeSpan.FromSeconds(60); // tempo entre consultas
+        var intervalo = TimeSpan.FromSeconds(config.IntervaloSegundos); // tempo entre consultas
 
         // Confirma que o ticker existe antes de começar o monitoramento
         if (!await Validacoes.ValidarTickerNaB3(client, ticker)) return 1;
