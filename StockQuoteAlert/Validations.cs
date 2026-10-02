@@ -14,8 +14,8 @@ public static class Validations
             return null;
 
         return "número incorreto de argumentos.\n" +
-               "Uso: stock-quote-alert.exe <ticker> <preço_venda> <preço_compra>\n" +
-               "Ex:  stock-quote-alert.exe PETR4 22.67 22.59";
+               "Uso: dotnet run -- <ticker> <preço_venda> <preço_compra>\n" +
+               "Ex:  dotnet run -- PETR4 22.67 22.59";
     }
 
     // Normaliza o ticker (ex: " petr4" -> "PETR4") e verifica o formato
