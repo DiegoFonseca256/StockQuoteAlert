@@ -101,4 +101,17 @@ public class Program
             return 0; // Dentro do intervalo
         }
     }
+
+    //Função para montar o assunto e o corpo do alerta: resultado 1 = venda, -1 = compra
+    private static (string Assunto, string Corpo) MontarAlerta(
+        int resultado, string ticker, decimal preco, decimal precoVenda, decimal precoCompra)
+    {
+        return resultado == 1
+            ? ($"[VENDA] {ticker} a R$ {preco:F2}",
+               $"A cotação de {ticker} está em R$ {preco:F2}, acima do preço de referência para venda (R$ {precoVenda:F2}).\n" +
+               $"Recomendação: VENDER.\n\nHorário: {DateTime.Now:dd/MM/yyyy HH:mm:ss}")
+            : ($"[COMPRA] {ticker} a R$ {preco:F2}",
+               $"A cotação de {ticker} está em R$ {preco:F2}, abaixo do preço de referência para compra (R$ {precoCompra:F2}).\n" +
+               $"Recomendação: COMPRAR.\n\nHorário: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
+    }
 }
