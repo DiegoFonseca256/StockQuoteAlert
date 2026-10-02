@@ -51,6 +51,10 @@ public class BrapiClient
         var url = $"{BaseUrl}/quote/{Uri.EscapeDataString(ticker)}";
         var response = await _httpClient.GetAsync(url);
 
+        // Ticker inexistente: a brapi responde 404
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            return null;
+
         if (!response.IsSuccessStatusCode)
         {
             var body = await response.Content.ReadAsStringAsync();

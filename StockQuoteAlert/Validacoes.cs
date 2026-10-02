@@ -29,6 +29,24 @@ public static class Validacoes
         return false;
     }
 
+    // Consulta a brapi para confirmar que o ticker existe na B3
+    public static async Task<bool> ValidarTickerNaB3(BrapiClient client, string ticker)
+    {
+        try
+        {
+            if (await client.GetQuoteAsync(ticker) is not null)
+                return true;
+
+            Console.WriteLine($"Erro: ticker '{ticker}' não encontrado na B3.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Erro ao consultar {ticker}: {ex.Message}");
+            return false;
+        }
+    }
+
     // Converte os dois preços e verifica se a compra é menor que a venda
     public static bool ValidarPrecos(string textoVenda, string textoCompra, out decimal precoVenda, out decimal precoCompra)
     {

@@ -31,6 +31,9 @@ public class Program
         var client = new BrapiClient(token);
         var intervalo = TimeSpan.FromSeconds(60); // tempo entre consultas
 
+        // Confirma que o ticker existe antes de começar o monitoramento
+        if (!await Validacoes.ValidarTickerNaB3(client, ticker)) return 1;
+
         // Ctrl+C sinaliza o cancelamento em vez de matar o processo na hora
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) =>
