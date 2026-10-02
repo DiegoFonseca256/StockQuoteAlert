@@ -4,18 +4,29 @@ public class Program
 {
     public static async Task<int> Main(string[] args)
     {
+
+        /** -------------------------------------------Area de carregamento----------------------------------------------------------*/
         // Carrega variáveis de ambiente do arquivo .env (segredos: token da brapi e senha do SMTP)
         DotNetEnv.Env.TraversePath().Load();
         var token = Environment.GetEnvironmentVariable("BRAPI_API_KEY");
+        // Lê o appsettings.json (e-mail de destino, SMTP e intervalo)
+        var config = Configuracao.Carregar();
+        if (config is null) return 1;
+        // Cria o objeto de envio de e-mails
+        var email = new Email(config.Smtp);
+        int? ultimoResultado = null;
+        // Cria o cliente da BRAPI
+        var client = new BrapiClient(token);
+        var intervalo = TimeSpan.FromSeconds(config.IntervaloSegundos); // tempo entre consultas
+        /** -------------------------------------------------------------------------------------------------------------------------*/
 
+        /** -------------------------------------------Area de Validação-------------------------------------------------------------*/
         // Valida os argumentos: <ticker> <preço_venda> <preço_compra>
         if (!Validacoes.ValidarQuantidadeDeArgumentos(args)) return 1;
         if (!Validacoes.ValidarTicker(args[0], out var ticker)) return 1;
         if (!Validacoes.ValidarPrecos(args[1], args[2], out var precoVenda, out var precoCompra)) return 1;
-
-        // Lê o appsettings.json (e-mail de destino, SMTP e intervalo)
-        var config = Configuracao.Carregar();
-        if (config is null) return 1;
+        // Confirma que o ticker existe antes de começar o monitoramento
+        if (!await Validacoes.ValidarTickerNaB3(client, ticker)) return 1;
 
         // Exibe informações sobre o token
         Console.WriteLine(string.IsNullOrWhiteSpace(token)
@@ -25,15 +36,7 @@ public class Program
 
         Console.WriteLine($"Monitorando {ticker}: venda acima de {precoVenda}, compra abaixo de {precoCompra}.");
 
-        // Teste de envio de e-mail
-        //var gmail = new Email(config.Smtp);
-        //await gmail.SendEmail(config.EmailDestino, "TESTE C#", "Hello World!");
-
-        var client = new BrapiClient(token);
-        var intervalo = TimeSpan.FromSeconds(config.IntervaloSegundos); // tempo entre consultas
-
-        // Confirma que o ticker existe antes de começar o monitoramento
-        if (!await Validacoes.ValidarTickerNaB3(client, ticker)) return 1;
+        /** -------------------------------------------------------------------------------------------------------------------------*/
 
         // Ctrl+C sinaliza o cancelamento em vez de matar o processo na hora
         using var cts = new CancellationTokenSource();
@@ -45,6 +48,8 @@ public class Program
 
         Console.WriteLine("Pressione Ctrl+C para encerrar.");
         Console.WriteLine();
+
+        
 
         while (!cts.IsCancellationRequested)
         {
@@ -59,7 +64,26 @@ public class Program
                 else
                 {
                     Console.Write($"[{DateTime.Now:HH:mm:ss}] {ticker}: ");
-                    IsPriceInRange(quote.RegularMarketPrice, precoCompra, precoVenda);
+                    var resultado = IsPriceInRange(quote.RegularMarketPrice, precoCompra, precoVenda);
+
+                    if (resultado == 0)
+                    {
+                        ultimoResultado = 0;  // voltou para a faixa: o próximo rompimento gera alerta de novo
+                    }
+                    else if (resultado != ultimoResultado)
+                    {
+                        var (assunto, corpo) = MontarAlerta(resultado, ticker, quote.RegularMarketPrice, precoVenda, precoCompra);
+
+                        try
+                        {
+                            await email.SendEmail(config.EmailDestino, assunto, corpo);
+                            ultimoResultado = resultado;
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] [FALHA] Envio do e-mail: {ex.Message}");
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -81,6 +105,8 @@ public class Program
         Console.WriteLine("Monitoramento encerrado.");
         return 0;
     }
+
+    /** -------------------------------------------Area das Funções Auxiliares----------------------------------------------------------*/
 
     //Função para verificar se o preço está dentro do intervalo especificado
     private static int IsPriceInRange(decimal price, decimal min, decimal max)
@@ -115,3 +141,4 @@ public class Program
                $"Recomendação: COMPRAR.\n\nHorário: {DateTime.Now:dd/MM/yyyy HH:mm:ss}");
     }
 }
+/** -----------------------------------------------------------------------------------------------------------------------------------*/
